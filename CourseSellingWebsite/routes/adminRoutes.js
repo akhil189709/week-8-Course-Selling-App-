@@ -1,23 +1,23 @@
 const { Router } = require("express");
 const adminRouter = Router();
-const { adminModel } = require("../db");
-const { z } = require("zod");
+const { adminModel, courseModel } = require("../db");
+const { zod } = require("zod");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const { JWT_ADMIN_PASSWORD } = require("../config");
 const { adminMiddleware } = require("../middlewares/admin");
 
 adminRouter.post("/signup", async (req, res) => {
-  const requiredBody = z.object({
-    email: z.string().min(5).max(20).email(),
-    password: z.string().min(5).max(20),
-    firstName: z.string().min(5).max(20),
-    lastName: z.string().min(5).max(20),
+  const requiredBody = zod.object({
+    email: zod.string().min(5).max(20).email(),
+    password: zod.string().min(5).max(20),
+    firstName: zod.string().min(5).max(20),
+    lastName: zod.string().min(5).max(20),
   });
   const parsedBody = requiredBody.safeParse(req.body);
-  
+
   if (!parsedBody.success) {
-    res.json({
+    res.status(401).json({
       message: "invalid inputs!",
       error: parsedBody.error,
     });
@@ -35,14 +35,29 @@ adminRouter.post("/signup", async (req, res) => {
       lastName: lastName,
     });
   } catch (error) {
-    console.log(error);
+    res.status(401).json({
+      message: "you are already signed up!",
+    });
   }
-  res.json({
+  res.status(200).json({
     message: "you are signed up!",
   });
 });
 
 adminRouter.post("/signin", async (req, res) => {
+  const requiredBody = zod.object({
+    email: zod.string().min(5).max(20).email(),
+    password: zod.string().min(5).max(20),
+  });
+  const parsedBody = requiredBody.safeParse(req.body);
+
+  if (!parsedBody.success) {
+    res.status(401).json({
+      message: "invalid inputs!",
+      error: parsedBody.error,
+    });
+    return;
+  }
   const { email, password } = req.body;
   const admin = await adminModel.findOne({
     email: email,
@@ -76,9 +91,24 @@ adminRouter.post("/signin", async (req, res) => {
 adminRouter.post("/createCourse", adminMiddleware, async (req, res) => {
   const adminId = req.userId;
 
-  const { title, imageUrl, description, price } = req.body;
+  const requireBody = zod.object({
+    title: zod.string().min(3),
+    description: zod.string().min(10),
+    imageUrl: zod.string().url(),
+    price: zod.number().positive(),
+  });
 
-  const course = await adminModel.create({
+  const parseDataWithSuccess = requireBody.safeParse(req.body);
+
+  if (!parseDataWithSuccess.success) {
+    return res.json({
+      message: "Incorrect data format",
+      error: parseDataWithSuccess.error,
+    });
+  }
+  const { title, description, imageUrl, price } = req.body;
+
+  const course = await courseModel.create({
     title: title,
     description: description,
     imageUrl: imageUrl,
@@ -94,33 +124,92 @@ adminRouter.post("/createCourse", adminMiddleware, async (req, res) => {
 adminRouter.put("/UpdateCourse", adminMiddleware, async (req, res) => {
   const adminId = req.userId;
 
+  const requireBody = zod.object({
+    title: zod.string().min(3),
+    description: zod.string().min(10),
+    imageUrl: zod.string().url(),
+    price: zod.number().positive(),
+  });
+
+  const parseDataWithSuccess = requireBody.safeParse(req.body);
+
+  if (!parseDataWithSuccess.success) {
+    return res.json({
+      message: "Incorrect data format",
+      error: parseDataWithSuccess.error,
+    });
+  }
+
   const { title, description, imageUrl, courseId, price } = req.body;
 
-  const course = await adminModel.updateOne(
+  const course = await courseModel.findOne({
+    _id: courseId,
+    creatorId: adminId,
+  });
+  if (!course) {
+    res.status(401).json({
+      message: "course not found!",
+    });
+  }
+
+  await courseModel.updateOne(
     {
       _id: courseId,
       creatorId: adminId,
     },
     {
-      title: title,
-      description: description,
-      imageUrl: imageUrl,
-      price: price,
+      title: title || course.title,
+      description: description || course.description,
+      imageUrl: imageUrl || course.imageUrl,
+      price: price || course.price,
     }
   );
-  res.json({
+  res.status(200).json({
     message: "course updated!",
     creatorId: course._id,
   });
 });
-adminRouter.get("/GetCourse", async (req, res) => {
+adminRouter.get("/GetCourse", adminMiddleware, async (req, res) => {
   const adminId = req.userId;
-  const courses = await adminModel.findOne({
+
+  const courses = await courseModel.find({
     creatorId: adminId,
   });
   res.json({
     message: "GetCourse endpoint",
     courses,
+  });
+});
+
+adminRouter.delete("/deletecourse", adminMiddleware, async (req, res) => {
+  const adminId = req.userId;
+
+  const requireBody = zod.object({
+    courseId: zod.string().min(5),
+  });
+  const parseDataWithSuccess = requireBody.safeParse(req.body);
+  if (!parseDataWithSuccess.success) {
+    res.status(401).json({
+      message: "Incorrect data format!",
+      error: parseDataWithSuccess.error,
+    });
+  }
+  const { courseId } = req.body;
+  const course = await courseModel.findOne({
+    _id: courseId,
+    creatorId: userId,
+  });
+  if (!course) {
+    res.status(401).json({
+      message: "course not found!",
+    });
+  }
+  await courseModel.deleteOne({
+    _id: courseId,
+    creatorId: adminId,
+  });
+  res.status(200).json({
+    message: "course deleted!",
   });
 });
 

@@ -1,20 +1,20 @@
 const { Router } = require("express");
-const { UserModel, purchaseModel } = require("../db");
+const { UserModel, purchaseModel, courseModel } = require("../db");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-const { z } = require("zod");
+const { zod } = require("zod");
 const UserRouter = Router();
 const { JWT_USER_PASSWORD } = require("../config");
 
 UserRouter.post("/signup", async (req, res) => {
-  const requiredBody = z.object({
-    email: z.string().min(5).max(20).email(),
-    password: z.string().min(5).max(20),
-    firstName: z.string().min(5).max(20),
-    lastName: z.string().min(5).max(20),
+  const requiredBody = zod.object({
+    email: zod.string().min(5).max(20).email(),
+    password: zod.string().min(5).max(20),
+    firstName: zod.string().min(5).max(20),
+    lastName: zod.string().min(5).max(20),
   });
   const parsedBody = requiredBody.safeParse(req.body);
-  if (!parsedBody) {
+  if (!parsedBody.success) {
     res.json({
       message: "invalid inputs!",
       error: parsedBody.error,
@@ -34,15 +34,29 @@ UserRouter.post("/signup", async (req, res) => {
       lastName: lastName,
     });
   } catch (error) {
-    console.log(error);
+    res.status(4001).json({
+      message: "you are already signed in!",
+    });
   }
-  res.json({
+  res.status(200).json({
     message: "you are signed up!",
   });
 });
 
 UserRouter.post("/signin", async (req, res) => {
+  const requiredBody = zod.object({
+    email: zod.string().min(5).max(20).email(),
+    password: zod.string().min(5).max(20),
+  });
+  const parsedBody = requiredBody.safeParse(req.body);
+  if (!parsedBody.success) {
+    res.status(401).json({
+      message: "your credentials are not correct!",
+      error: parsedBody.error,
+    });
+  }
   const { email, password } = req.body;
+
   const user = await UserModel.findOne({
     email: email,
   });
@@ -77,8 +91,14 @@ UserRouter.get("/purchases", async (req, res) => {
   const purchases = await purchaseModel.find({
     userId,
   });
+
+  const courseData = await courseModel.find({
+    _id: { $in: purchases.map((purchase) => purchase.courseId) },
+  });
+
   res.json({
     purchases,
+    courseData,
   });
 });
 
